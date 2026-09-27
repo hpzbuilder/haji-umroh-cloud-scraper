@@ -1,0 +1,81 @@
+name: Haji & Umrah Cloud Legal & News Scraper
+
+on:
+  schedule:
+    # Berjalan otomatis setiap 4 jam secara gratis di GitHub Actions
+    - cron: '15 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      manual_note:
+        description: 'Catatan eksekusi manual'
+        required: false
+        default: 'Pemicu manual sinkronisasi data haji & umrah'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: haji-cloud-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape-haji-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl libxml2-dev libxslt1-dev
+
+      - name: Install Python Packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 pymupdf lxml
+
+      - name: Run Haji & Umrah Auto-Harvest Batch
+        id: harvest_batch
+        run: |
+          python run_cloud_batch_haji.py
+
+      - name: Commit Updated SQLite Catalogs
+        run: |
+          git config --global user.name "Haji Cloud Worker"
+          git config --global user.email "haji-worker@kantorhukum.internal"
+          git add knowledge_base/haji_umroh.db 2>/dev/null || true
+          git diff --staged --quiet || (git commit -m "chore(db): update katalog haji & umrah [skip ci]" && git push)
+
+      - name: Publish Ready-to-Use Release
+        if: steps.harvest_batch.outputs.zip_name != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v-haji-${{ steps.harvest_batch.outputs.timestamp }}"
+          name: "Paket Data Haji & Umrah — ${{ steps.harvest_batch.outputs.timestamp }}"
+          body: |
+            ### 🕋 Paket Data Haji & Umrah Siap Pakai (Cloud Harvest)
+            - **Waktu Eksekusi:** ${{ steps.harvest_batch.outputs.timestamp }}
+            - **Total Berkas Terolah:** ${{ steps.harvest_batch.outputs.file_count }} berkas (.md, database, index)
+            - **Ukuran Arsip:** ${{ steps.harvest_batch.outputs.zip_size_mb }} MB
+            - **Isi:**
+              - Regulasi Resmi Kemenag (JDIH Kemenag)
+              - Tesis & Fiqih Haji/Umrah (OAI-PMH UIN Sunan Kalijaga)
+              - Arsip Berita & Kebijakan 5 Tahun 2021–2026 (LKBN ANTARA)
+              - Database SQLite (`knowledge_base/haji_umroh.db`)
+              - Indeks FTS5 Mandiri (`knowledge_base/haji_umroh_indeks.db`)
+            
+            *Unduh dan ekstrak ke folder `knowledge_base/Haji_Umroh/` atau gunakan `python sync_haji.py`.*
+          files: "${{ steps.harvest_batch.outputs.zip_path }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
