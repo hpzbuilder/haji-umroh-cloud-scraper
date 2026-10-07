@@ -57,17 +57,6 @@ jobs:
           git add knowledge_base/haji_umroh.db 2>/dev/null || true
           git diff --staged --quiet || (git commit -m "chore(db): update katalog haji & umrah [skip ci]" && git push)
 
-      - name: Prune Old Releases
-        run: |
-          OLD_RELEASES=$(gh release list -L 30 --json tagName -q '.[2:][].tagName' 2>/dev/null || true)
-          for tag in $OLD_RELEASES; do
-            if [ -n "$tag" ]; then
-              echo "Memangkas rilis lama: $tag"
-              gh release delete "$tag" --cleanup-tag --yes || true
-            fi
-          done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Ready-to-Use Release
         if: steps.harvest_batch.outputs.zip_name != ''
